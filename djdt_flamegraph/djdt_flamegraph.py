@@ -121,6 +121,8 @@ class Sampler(object):
         delta = now - self._last
         self.intervals.append(delta)
         if delta > self.interval * 10:
+            missed = delta / self.interval
+            self.stack_counts[formatted_stack + '*'] += missed - 1
             self.gaps.append((now - self._start, delta,
                               self._last_stack, formatted_stack))
         self._last = now
