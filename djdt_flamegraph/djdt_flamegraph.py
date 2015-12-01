@@ -43,6 +43,18 @@ template = r"""
       {% for outlier in stats.serious_outliers %}
         <b title="sample {{ outlier.pos }} of {{ stats.samples }}">{{ outlier.value|floatformat:"-3"}}&#x200a;ms</b>
       {% endfor %}
+      {% if stats.gaps %}
+      <br>
+      <br>
+      Gaps:
+      <br>
+      {% for gap in stats.gaps %}
+        <br>
+        at {{ gap.start|floatformat:"0" }}&#x200a;ms: {{ gap.start_stack }} <br>
+        ... {{ gap.length|floatformat:"0" }} ms gap ... <br>
+        at {{ gap.end|floatformat:"0" }}&#x200a;ms: {{ gap.end_stack }} <br>
+      {% endfor %}
+      {% endif %}
     </div>
 </template>
 <iframe id="djdt-flamegraph-iframe" style="width:100%;height:100%;" src="about:blank">
@@ -91,7 +103,9 @@ class Sampler(object):
         self.sampling_cost = 0
         self.total_time = 0
         self.intervals = []
+        self.gaps = []
         self._start = self._last = 0
+        self._last_stack = ''
 
     def _sample(self, signum, frame):
         now = time.time()
@@ -104,8 +118,13 @@ class Sampler(object):
 
         formatted_stack = ';'.join(reversed(stack))
         self.stack_counts[formatted_stack] += 1
-        self.intervals.append(now - self._last)
+        delta = now - self._last
+        self.intervals.append(delta)
+        if delta > self.interval * 10:
+            self.gaps.append((now - self._start, delta,
+                              self._last_stack, formatted_stack))
         self._last = now
+        self._last_stack = formatted_stack
         self.sampling_cost += time.time() - now
 
     def get_stats(self):
@@ -133,7 +152,21 @@ class Sampler(object):
             'total_time': self.total_time * 1000,
             'samples': len(self.intervals),
             'expected_samples': self.total_time / self.interval,
+            'gaps': [
+                {'start': (end_time - length) * 1000,
+                 'end': end_time * 1000,
+                 'length': length * 1000,
+                 'start_stack': self.pretty_stack(start_stack),
+                 'end_stack': self.pretty_stack(end_stack)}
+                for end_time, length, start_stack, end_stack in self.gaps
+            ]
         }
+
+    def pretty_stack(self, stack, limit=3):
+        stack = stack.split(';')
+        if len(stack) > limit:
+            stack = [u'\u2026'] + stack[-limit:]
+        return u'\u2192'.join(stack)
 
     def start(self):
         self._start = self._last = time.time()
